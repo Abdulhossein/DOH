@@ -1,22 +1,20 @@
+[1] 
+
 import requests
 import re
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
-import time
 
 # آدرس فایل حاوی لیست سرویس‌دهنده‌ها
 PROVIDERS_URL = 'https://github.com/Abdulhossein/DOH/raw/refs/heads/main/DoH%20provider%20URLs.txt'
 README_PATH = 'README.md'
 
-# تابع بررسی وضعیت یک سرویس
+# تابع بررسی وضعیت یک سرویس (بدون تغییر)
 def check_doh_provider(url, timeout=10):
     try:
-        # ارسال درخواست DoH برای یک دامنه ساده (مثل google.com)
         doh_url = f"{url.rstrip('/')}?name=google.com&type=A"
         headers = {'Accept': 'application/dns-json'}
         response = requests.get(doh_url, headers=headers, timeout=timeout)
-        
-        # بررسی موفقیت‌آمیز بودن پاسخ
         if response.status_code == 200:
             data = response.json()
             if 'Answer' in data and len(data['Answer']) > 0:
@@ -25,59 +23,60 @@ def check_doh_provider(url, timeout=10):
     except Exception:
         return url, False
 
-# بارگذاری لیست سرویس‌دهنده‌ها
 def load_providers():
     response = requests.get(PROVIDERS_URL)
     if response.status_code != 200:
         print("Failed to fetch providers list.")
         sys.exit(1)
-    # خطوط خالی را حذف کرده و هر خط را به عنوان یک URL در نظر بگیرید
     providers = [line.strip() for line in response.text.splitlines() if line.strip()]
     return providers
 
-# به‌روزرسانی جدول README با وضعیت‌های جدید
-def update_readme(working_urls, non_working_urls):
-    with open(README_PATH, 'r', encoding='utf-8') as file:
-        content = file.read()
+# ==================== بخش جدید برای بازسازی کامل README ====================
 
-    # پیدا کردن جدول وضعیت با استفاده از الگوی منظم
-    table_pattern = r'(\| Who runs it \| Base URL \| Working\*\| Comment \|\n)(?:\|.*\|\n)*?(\n)'
-    match = re.search(table_pattern, content, re.MULTILINE | re.DOTALL)
-    
-    if not match:
-        print("Could not find status table in README.")
-        sys.exit(1)
-    
-    # ساخت ردیف‌های جدید جدول
-    new_rows = []
+def generate_full_readme(working_urls, non_working_urls):
+    # 1. محتوای ثابت README که قبل از جدول می‌آید (لطفاً این متن را با محتوای واقعی فایل خودتان جایگزین کنید)
+    readme_header = """# DoH - DNS over HTTPS
+
+DoH queries resolve over HTTPS for privacy, performance, and security. DoH also makes it easier to use a name server of your choice instead of the one configured for your system.
+
+# Spec
+[RFC 8484 - DNS Queries over HTTPS (DoH)](https://tools.ietf.org/html/rfc8484)
+
+# Publicly available servers
+
+"""
+
+    # 2. جدول جدید را به صورت کامل می‌سازیم
+    # خط اول: هدرها
+    table = "| Who runs it | Base URL | Working* | Comment |\n"
+    # خط دوم: جداکننده‌ها (تراز چپ برای ستون اول و چهارم، وسط برای بقیه)
+    table += "|:---|:---|:---:|:---|\n"
+
+    # 3. ردیف‌های سرویس‌های فعال
     for url in working_urls:
-        # پیدا کردن نام سرویس‌دهنده از URL (برای پر کردن ستون اول)
-        # شما می‌توانید این بخش را بر اساس ساختار README خود سفارشی کنید
         provider_name = url.split('/')[2] if '://' in url else 'Unknown'
-        new_rows.append(f"| {provider_name} | {url} | :heavy_check_mark: | |")
-    
+        table += f"| {provider_name} | {url} | ✅ | |\n"
+
+    # 4. ردیف‌های سرویس‌های غیرفعال
     for url in non_working_urls:
         provider_name = url.split('/')[2] if '://' in url else 'Unknown'
-        new_rows.append(f"| {provider_name} | {url} | :x: | |")
-    
-    # جایگزینی جدول قدیمی با جدول جدید
-    new_table = match.group(1) + '\n'.join(new_rows) + match.group(2)
-    updated_content = content[:match.start()] + new_table + content[match.end():]
-    
-    with open(README_PATH, 'w', encoding='utf-8') as file:
-        file.write(updated_content)
-    
-    print(f"README updated. Working: {len(working_urls)}, Non-working: {len(non_working_urls)}")
+        table += f"| {provider_name} | {url} | ❌ | |\n"
 
-# تابع اصلی
+    # کل محتوای فایل README را می‌سازیم
+    full_readme_content = readme_header + table
+
+    return full_readme_content
+
+# ==================== بخش اصلی (بدون تغییر) ====================
+
 def main():
     print("Loading DoH providers...")
     providers = load_providers()
     print(f"Found {len(providers)} providers to check.")
-    
+
     working_urls = []
     non_working_urls = []
-    
+
     print("Checking providers' statuses...")
     with ThreadPoolExecutor(max_workers=10) as executor:
         future_to_url = {executor.submit(check_doh_provider, url): url for url in providers}
@@ -89,12 +88,17 @@ def main():
             else:
                 non_working_urls.append(url)
                 print(f"✗ {url}")
-    
-    print("\nUpdating README...")
-    update_readme(working_urls, non_working_urls)
-    
+
+    print("\nRegenerating README...")
+    # اینجا کل فایل README از نو ساخته می‌شود
+    new_readme_content = generate_full_readme(working_urls, non_working_urls)
+
+    # فایل را با محتوای جدید می‌نویسیم
+    with open(README_PATH, 'w', encoding='utf-8') as file:
+        file.write(new_readme_content)
+
+    print(f"README updated. Working: {len(working_urls)}, Non-working: {len(non_working_urls)}")
     print("Done!")
-    sys.exit(0)
 
 if __name__ == "__main__":
     main()
