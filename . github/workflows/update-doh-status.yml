@@ -1,0 +1,37 @@
+name: Check and Update DoH Status
+
+on:
+  schedule:
+    - cron: '0 0 29 * *'  # هر ۲۹ هر ماه یکبار اجرا شود
+  workflow_dispatch:       # امکان اجرای دستی را نیز فراهم کنید
+
+permissions:
+  contents: write          # برای commit تغییرات در README
+
+jobs:
+  update-status:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0    # برای دسترسی به تاریخچه کامل
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install dependencies
+        run: pip install requests pyyaml
+
+      - name: Run DoH status checker
+        run: python check_doh.py
+
+      - name: Commit and push changes
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add README.md
+          git diff --staged --quiet || git commit -m "Automatically update DoH status"
+          git push
